@@ -1,0 +1,11 @@
+Transaction_ID,Product_Category,Sales_Amount,Customer_Age,Rating
+1,Electronics,150,25.0,5
+2,Home,200,34.0,4
+3,Electronics,155,,3
+4,Sports,300,45.0,5
+5,Home,210,23.0,2
+6,Electronics,180,31.0,4
+7,Home,205,29.0,5
+8,Sports,1000,,2
+9,Electronics,190,38.0,4
+10,Electronics,160,40.0,3
