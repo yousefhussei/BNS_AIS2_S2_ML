@@ -1,3 +1,18 @@
+"""
+Ford GoBike Analytics Platform
+================================
+One merged Dash dashboard combining the strongest pieces of every earlier
+version: the multi-page sidebar structure, the KPI + computed-insights
+panels, the net-flow station map, the fleet/rebalancing operations view,
+and the demographics deep-dive — all running on the RAW february 2019
+trip file, cleaned in-place when the app starts.
+
+Run:
+    pip install dash pandas numpy plotly
+    python app.py
+Then open http://127.0.0.1:8050
+"""
+
 import os
 import numpy as np
 import pandas as pd
@@ -73,62 +88,121 @@ NET_THRESHOLD = 120  # |arrivals - departures| that triggers a rebalance alert
 GITHUB_REPO_URL = "https://github.com/yousefhussei/BNS_AIS2_S2_ML/tree/main/src/DA/Final-Project/ford-gobike-dashboard"
 
 # ============================================================ 2. THEME
-BG      = "#f8fafc"
-CARD    = "#ffffff"
-INK     = "#0f172a"
-MUTED   = "#64748b"
-GRID    = "#e5eaf1"
-TEAL    = "#0f9d8a"
-INDIGO  = "#4f46e5"
-AMBER   = "#f59e0b"
-CORAL   = "#ef4444"
-SLATE   = "#94a3b8"
-PURPLE  = "#8b5cf6"
+# A dark "operations console" palette — fits a live transit/fleet platform
+# better than a generic light SaaS-card look, with one accent (signal amber)
+# reserved for the numbers and states that matter most.
+BG      = "#0e1218"   # page background
+CARD    = "#171d27"   # card / panel surface
+PANEL2  = "#1c2330"   # secondary surface: insight blocks, table headers, bar tracks
+INK     = "#eef1f6"   # primary text (light, on dark)
+MUTED   = "#aab2c0"   # secondary text (bright enough to read clearly on dark)
+GRID    = "#262e3b"   # hairline borders
+SIGNAL  = "#f2a93b"   # the one bold accent — hero numbers, alerts, active nav
+TEAL    = "#4fae8e"   # balanced / positive status
+INDIGO  = "#5b8def"   # subscriber / primary data series (steel blue)
+AMBER   = SIGNAL       # kept as an alias so existing call sites stay meaningful
+CORAL   = "#e8748a"   # customer / casual rider, deficit signal
+SLATE   = "#5b6472"   # neutral bars
+PURPLE  = "#8a7fd1"   # secondary insight accent
 
-USER_COLORS   = {"Subscriber": INDIGO, "Customer": AMBER}
+USER_COLORS   = {"Subscriber": INDIGO, "Customer": CORAL}
 GENDER_COLORS = {"Male": INDIGO, "Female": CORAL, "Other": TEAL, "Unknown": SLATE}
-EQUITY_COLORS = {"Yes": TEAL, "No": "#cbd5e1"}
+EQUITY_COLORS = {"Yes": TEAL, "No": "#3a4353"}
+
+DD_BG, DD_BORDER, DD_TEXT = "#2b3850", "#5b6b85", "#ffffff"   # filter boxes: clearly visible on the dark header
+
+
+def dd_style(width):
+    return {"width": width, "backgroundColor": DD_BG, "color": DD_TEXT, "border": f"1px solid {DD_BORDER}"}
+
+
+FONTS = ("<link rel='preconnect' href='https://fonts.googleapis.com'>"
+         "<link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700"
+         "&family=Inter:wght@400;500;600;700&display=swap' rel='stylesheet'>")
 
 CSS = f"""
-body{{margin:0;font-family:'Plus Jakarta Sans',Inter,'Segoe UI',Arial,sans-serif;background:{BG};color:{INK}}}
-.card{{background:{CARD};border:1px solid {GRID};border-radius:14px;padding:18px 20px;min-width:0;
-       box-shadow:0 1px 3px rgba(15,23,42,.03)}}
-.card-title{{font-weight:700;font-size:15.5px}}
-.card-sub{{color:{MUTED};font-size:12.5px;margin:2px 0 12px}}
-.kpi-label{{color:{MUTED};font-size:12.5px;font-weight:600;display:flex;justify-content:space-between}}
-.kpi-value{{font-size:27px;font-weight:800;margin:8px 0 10px;letter-spacing:-.5px}}
-.kpi-foot{{font-size:11.5px;font-weight:600;border-top:1px solid #f1f5f9;padding-top:10px;
+body{{margin:0;font-family:'Inter','Segoe UI',Arial,sans-serif;background:{BG};color:{INK}}}
+.card-title,.kpi-value,.brand-title{{font-family:'Space Grotesk','Inter',sans-serif}}
+.card{{background:{CARD};border:1px solid {GRID};border-radius:10px;padding:18px 20px;min-width:0}}
+.card-title{{font-weight:600;font-size:15.5px}}
+.card-sub{{color:{MUTED};font-size:12px;margin:3px 0 14px}}
+.kpi-label{{color:{MUTED};font-size:11.5px;font-weight:600;display:flex;justify-content:space-between;
+            text-transform:uppercase;letter-spacing:.03em}}
+.kpi-value{{font-size:26px;font-weight:600;margin:8px 0 8px;letter-spacing:-.3px}}
+.kpi-foot{{font-size:11.5px;font-weight:500;color:{MUTED};border-top:1px solid {GRID};padding-top:9px;
            display:flex;justify-content:space-between;align-items:center}}
-.badge{{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;
+.kpi-hero{{background:linear-gradient(155deg,#1c2333,#12161f);border:1px solid #313c4f}}
+.kpi-hero .kpi-value{{font-size:34px;color:{SIGNAL}}}
+.badge{{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;
         padding:3px 9px;border-radius:20px;white-space:nowrap}}
-.badge-teal{{background:#ecfdf5;color:#059669}}
-.badge-indigo{{background:#eef2ff;color:#4338ca}}
-.badge-amber{{background:#fffbeb;color:#b45309}}
-.badge-slate{{background:#f1f5f9;color:{MUTED}}}
-.insight{{background:#f8fafc;border-radius:10px;padding:12px 14px;font-size:13.5px}}
-.nav-btn{{display:block;width:100%;text-align:left;background:none;border:0;color:#cbd5e1;font-size:14.5px;
- font-weight:600;padding:12px 16px;border-radius:10px;margin-bottom:5px;cursor:pointer;font-family:inherit}}
-.nav-btn:hover{{background:#111c33}}
-.nav-btn.active{{background:#0d2f2b;color:#2dd4bf}}
-.flabel{{font-size:10.5px;font-weight:700;color:{MUTED};letter-spacing:.06em;margin-right:8px;
+.badge-teal{{background:rgba(79,174,142,.15);color:#7cd6b0}}
+.badge-indigo{{background:rgba(91,141,239,.15);color:#9db9f6}}
+.badge-amber{{background:rgba(242,169,59,.15);color:{SIGNAL}}}
+.badge-slate{{background:rgba(139,147,163,.12);color:{MUTED}}}
+.insight{{background:{PANEL2};border-radius:8px;padding:12px 14px;font-size:13.5px}}
+.nav-btn{{display:block;width:100%;text-align:left;background:none;border:0;border-left:2px solid transparent;
+ color:#9aa3b2;font-size:14px;font-weight:500;padding:11px 14px;border-radius:0 6px 6px 0;margin-bottom:2px;
+ cursor:pointer;font-family:inherit}}
+.nav-btn:hover{{background:{PANEL2};color:{INK}}}
+.nav-btn.active{{background:rgba(242,169,59,.08);color:{SIGNAL};border-left:2px solid {SIGNAL};font-weight:600}}
+.flabel{{font-size:11px;font-weight:700;color:{MUTED};letter-spacing:.06em;margin-right:8px;
          text-transform:uppercase}}
-.btn{{border:1px solid {GRID};background:#fff;border-radius:8px;padding:8px 15px;font-weight:600;
+.btn{{border:1px solid {GRID};background:{CARD};color:{INK};border-radius:7px;padding:8px 15px;font-weight:600;
       cursor:pointer;font-family:inherit;font-size:13px}}
-.btn-primary{{background:{TEAL};color:#fff;border-color:{TEAL}}}
+.btn-primary{{background:{SIGNAL};color:#1a1305;border-color:{SIGNAL}}}
 .gh-icon p{{margin:0;line-height:0}}
-.rank-row{{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:13.5px}}
+.sidebar{{width:260px;flex-shrink:0;background:#0a0d13;border-right:1px solid {GRID};overflow:hidden;
+          position:sticky;top:0;height:100vh;align-self:flex-start;
+          transition:width .35s cubic-bezier(.4,0,.2,1),border-color .35s}}
+.sidebar-inner{{width:260px;height:100vh;overflow-y:auto;box-sizing:border-box;padding:22px 16px;display:flex;
+                flex-direction:column;transition:opacity .25s ease}}
+.sidebar.collapsed{{width:0;border-right-color:transparent}}
+.sidebar.collapsed .sidebar-inner{{opacity:0;pointer-events:none}}
+
+.rank-row{{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid {GRID};font-size:13.5px}}
 .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner table{{font-family:inherit}}
+::-webkit-scrollbar{{width:10px;height:10px}}
+::-webkit-scrollbar-thumb{{background:{GRID};border-radius:6px}}
+::-webkit-scrollbar-track{{background:{BG}}}
+
+/* --- dark theme for Dash's built-in Dropdown / Slider (they read these CSS variables) --- */
+html:root{{
+  --Dash-Fill-Inverse-Strong:{PANEL2}!important;        /* dropdown + tooltip background, slider thumb ring */
+  --Dash-Fill-Interactive-Strong:{SIGNAL}!important;    /* slider fill, focus outlines */
+  --Dash-Fill-Interactive-Weak:rgba(255,255,255,.07)!important;
+  --Dash-Stroke-Strong:#48536a!important;               /* dropdown border */
+  --Dash-Stroke-Weak:{GRID}!important;
+  --Dash-Text-Primary:{INK}!important;
+  --Dash-Text-Strong:{INK}!important;
+  --Dash-Text-Weak:#c3cad6!important;
+  --Dash-Text-Disabled:#a5aebd!important;               /* placeholder + slider numbers outside the range */
+  --Dash-Fill-Primary-Hover:rgba(255,255,255,.07)!important;
+  --Dash-Fill-Primary-Active:rgba(255,255,255,.12)!important;
+  --Dash-Fill-Disabled:rgba(255,255,255,.16)!important; /* slider track + dividers */
+  --Dash-Shading-Strong:rgba(0,0,0,.6)!important;
+  --Dash-Shading-Weak:rgba(0,0,0,.4)!important;
+}}
+.dash-dropdown{{background:{DD_BG}!important;border:1px solid {DD_BORDER}!important}}
+.dash-dropdown,.dash-dropdown *{{color:{DD_TEXT}!important;font-size:14px!important;font-weight:600}}
+.dash-dropdown svg{{fill:{DD_TEXT}!important}}
+.dash-dropdown-content{{background:{DD_BG}!important;border:1px solid {DD_BORDER}!important}}
+.dash-dropdown-content,.dash-dropdown-content *{{color:{DD_TEXT}!important;font-size:14px!important}}
+.dash-dropdown-option:hover,.dash-dropdown-option[data-highlighted],.dash-dropdown-option[aria-selected='true']{{
+    background:#3a4a68!important}}
+.dash-dropdown-trigger{{min-height:36px}}
+.dash-slider-mark{{font-size:12.5px!important;font-weight:600}}
+.dash-slider-thumb{{width:18px!important;height:18px!important}}
 """
 
 # ============================================================ 3. HELPERS
 def fig_style(fig, h=320, legend=True):
     fig.update_layout(
-        template="plotly_white", height=h, margin=dict(l=10, r=10, t=10, b=10),
+        template="plotly_dark", height=h, margin=dict(l=10, r=10, t=10, b=10),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", showlegend=legend,
-        font=dict(family="Plus Jakarta Sans, Inter, Arial", size=12, color="#334155"),
-        legend=dict(orientation="h", y=-0.18, x=0.5, xanchor="center"))
-    fig.update_xaxes(showgrid=False)
-    fig.update_yaxes(gridcolor="#eef2f7")
+        font=dict(family="Inter, Space Grotesk, Arial", size=12, color=MUTED),
+        legend=dict(orientation="h", y=-0.18, x=0.5, xanchor="center", font=dict(color=MUTED)))
+    fig.update_xaxes(showgrid=False, color=MUTED, linecolor=GRID)
+    fig.update_yaxes(gridcolor=GRID, color=MUTED, zerolinecolor=GRID)
     return fig
 
 
@@ -136,17 +210,18 @@ def graph(fig):
     return dcc.Graph(figure=fig, config={"displayModeBar": False})
 
 
-def card(title, subtitle, body, span=None):
+def card(title, subtitle, body, span=None, cls=""):
     style = {"gridColumn": f"span {span}"} if span else {}
-    return html.Div(className="card", style=style, children=[
+    return html.Div(className=f"card {cls}".strip(), style=style, children=[
         html.Div(title, className="card-title"),
         html.Div(subtitle, className="card-sub"), body])
 
 
-def kpi(label, value, foot, badge_text=None, badge_class="badge-slate"):
+def kpi(label, value, foot, badge_text=None, badge_class="badge-slate", hero=False):
     badge = html.Span(badge_text, className=f"badge {badge_class}") if badge_text else None
-    return html.Div(className="card", children=[
-        html.Div([label, html.Span("\u24d8", style={"color": "#cbd5e1"})], className="kpi-label"),
+    cls = "card kpi-hero" if hero else "card"
+    return html.Div(className=cls, children=[
+        html.Div([label, html.Span("\u24d8", style={"color": GRID})], className="kpi-label"),
         html.Div(value, className="kpi-value"),
         html.Div([html.Span(foot), badge], className="kpi-foot")])
 
@@ -157,9 +232,9 @@ def insight(title, text, color):
         html.Div(text, style={"color": MUTED, "fontSize": "13px", "lineHeight": "1.5"})])
 
 
-def grid(cols, children):
-    return html.Div(children, style={"display": "grid", "gap": "16px", "marginBottom": "16px",
-                                      "gridTemplateColumns": cols})
+def grid(cols, children, cls=""):
+    return html.Div(children, className=cls, style={"display": "grid", "gap": "16px", "marginBottom": "16px",
+                                                    "gridTemplateColumns": cols})
 
 
 def hbar(series, color, x_title="Trips"):
@@ -173,10 +248,11 @@ def data_table(d, cols):
     return dash_table.DataTable(
         data=d.to_dict("records"), columns=[{"name": c, "id": c} for c in cols],
         style_as_list_view=True, page_size=8,
-        style_header={"backgroundColor": "#f8fafc", "fontWeight": "700", "border": "none",
-                      "fontSize": "12.5px", "color": MUTED, "textTransform": "uppercase"},
+        style_header={"backgroundColor": PANEL2, "fontWeight": "700", "border": "none",
+                      "fontSize": "12px", "color": MUTED, "textTransform": "uppercase"},
         style_cell={"fontFamily": "inherit", "fontSize": "13px", "padding": "9px 10px",
-                    "border": "none", "borderBottom": f"1px solid {GRID}"},
+                    "border": "none", "borderBottom": f"1px solid {GRID}", "color": INK,
+                    "backgroundColor": CARD},
         style_data={"backgroundColor": CARD})
 
 
@@ -197,10 +273,10 @@ def make_map(flow):
               size_max=26, zoom=10.5, center=dict(lat=37.78, lon=-122.30))
     if hasattr(px, "scatter_map"):
         fig = px.scatter_map(f, **kw)
-        fig.update_layout(map_style="carto-positron")
+        fig.update_layout(map_style="carto-darkmatter")
     else:
         fig = px.scatter_mapbox(f, **kw)
-        fig.update_layout(mapbox_style="carto-positron")
+        fig.update_layout(mapbox_style="carto-darkmatter")
     return fig_style(fig, 460, legend=False)
 
 
@@ -225,8 +301,8 @@ def page_overview(d):
     alerts = flow[flow["net"].abs() >= NET_THRESHOLD]
     sub, cus = d[d["user_type"] == "Subscriber"], d[d["user_type"] == "Customer"]
 
-    kpis = grid("repeat(6, 1fr)", [
-        kpi("Total Trips", f"{len(d):,}", f"{d['bike_id'].nunique():,} bikes used", "Active", "badge-teal"),
+    kpis = grid("1.4fr repeat(5, 1fr)", [
+        kpi("Total Trips", f"{len(d):,}", f"{d['bike_id'].nunique():,} bikes used", "Active", "badge-teal", hero=True),
         kpi("Active Stations",
             f"{pd.concat([d['start_station_id'], d['end_station_id']]).nunique():,}",
             "Currently in use", "100% Up", "badge-teal"),
@@ -392,7 +468,7 @@ PAGES = {
 # ============================================================ 5. LAYOUT
 def dd(id_, all_label, options, width):
     opts = [{"label": all_label, "value": "all"}] + [{"label": str(o), "value": o} for o in options]
-    return dcc.Dropdown(id=id_, options=opts, value="all", clearable=False, style={"width": width})
+    return dcc.Dropdown(id=id_, options=opts, value="all", clearable=False, style=dd_style(width))
 
 
 def flt(label, control):
@@ -404,39 +480,40 @@ app = Dash(__name__)
 app.title = "Ford GoBike Analytics Platform"
 app.index_string = app.index_string.replace(
     "</head>",
-    f"<style>{CSS}</style>"
-    "<link rel='preconnect' href='https://fonts.googleapis.com'>"
-    "<link href='https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap' "
-    "rel='stylesheet'></head>")
+    f"<style>{CSS}</style>{FONTS}</head>")
 
 app.layout = html.Div(style={"display": "flex", "minHeight": "100vh"}, children=[
     dcc.Store(id="page", data="overview"),
     dcc.Download(id="download"),
 
     # ---- sidebar
-    html.Div(style={"width": "260px", "background": "#0b1220", "padding": "22px 16px", "flexShrink": 0,
-                    "display": "flex", "flexDirection": "column"}, children=[
-        html.Div([html.Div("🚲 Ford GoBike", style={"color": "#fff", "fontSize": "19px", "fontWeight": 800}),
-                  html.Div("ANALYTICS & OPERATIONS", style={"color": "#2dd4bf", "fontSize": "10.5px",
-                                                            "letterSpacing": ".12em", "fontWeight": 700})],
-                 style={"padding": "0 8px 18px", "borderBottom": "1px solid #1e293b", "marginBottom": "18px"}),
-        html.Div("MODULES", style={"color": "#94a3b8", "fontSize": "11px", "fontWeight": 700,
+    html.Div(id="sidebar", className="sidebar", children=[html.Div(className="sidebar-inner", children=[
+        html.Div([html.Div("🚲 Ford GoBike", className="brand-title",
+                           style={"color": INK, "fontSize": "19px", "fontWeight": 700}),
+                  html.Div("ANALYTICS & OPERATIONS", style={"color": SIGNAL, "fontSize": "10px",
+                                                            "letterSpacing": ".12em", "fontWeight": 700,
+                                                            "marginTop": "3px"})],
+                 style={"padding": "0 8px 18px", "borderBottom": f"1px solid {GRID}", "marginBottom": "18px"}),
+        html.Div("MODULES", style={"color": MUTED, "fontSize": "10.5px", "fontWeight": 700,
                                    "letterSpacing": ".08em", "padding": "0 8px 12px"}),
         *[html.Button(v[0], id=f"nav-{k}", className="nav-btn") for k, v in PAGES.items()],
         html.Div(style={"flex": 1}),
-        html.Div([html.Div("Dataset", style={"color": "#fff", "fontWeight": 700, "fontSize": "13px"}),
-                  html.Div(f"{len(df):,} clean trips  ·  {N_DROPPED:,} dropped", style={"color": "#94a3b8", "fontSize": "11.5px"}),
+        html.Div([html.Div("Dataset", style={"color": INK, "fontWeight": 700, "fontSize": "13px"}),
+                  html.Div(f"{len(df):,} clean trips  ·  {N_DROPPED:,} dropped", style={"color": MUTED, "fontSize": "11.5px"}),
                   html.Div("Feb 2019  ·  start_time has no usable date/hour, so time-of-day views are omitted.",
-                           style={"color": "#64748b", "fontSize": "10.5px", "marginTop": "6px", "lineHeight": 1.4})],
-                 style={"border": "1px solid #1e293b", "borderRadius": "10px", "padding": "12px 14px"}),
-    ]),
+                           style={"color": "#5f6a7a", "fontSize": "10.5px", "marginTop": "6px", "lineHeight": 1.4})],
+                 style={"border": f"1px solid {GRID}", "borderRadius": "10px", "padding": "12px 14px"}),
+    ])]),
 
     # ---- main
     html.Div(style={"flex": 1, "minWidth": 0}, children=[
         html.Div(style={"display": "flex", "justifyContent": "space-between", "alignItems": "center",
                         "padding": "16px 28px", "background": CARD, "borderBottom": f"1px solid {GRID}"}, children=[
-            html.Div([html.Span("Ford GoBike Analytics  ›  ", style={"color": MUTED}),
-                      html.Span(id="crumb", style={"fontWeight": 700})]),
+            html.Div(style={"display": "flex", "alignItems": "center", "gap": "14px"}, children=[
+                html.Button("\u2630", id="btn-sidebar", className="btn", title="Show / hide menu",
+                            style={"padding": "6px 11px", "fontSize": "15px", "lineHeight": 1}),
+                html.Div([html.Span("Ford GoBike Analytics  ›  ", style={"color": MUTED}),
+                          html.Span(id="crumb", style={"fontWeight": 700})])]),
             html.Div(style={"display": "flex", "gap": "10px"}, children=[
                 html.Button("Export Summary", id="btn-export", className="btn btn-primary"),
                 html.A(
@@ -453,15 +530,14 @@ app.layout = html.Div(style={"display": "flex", "minHeight": "100vh"}, children=
                         dangerously_allow_html=True, className="gh-icon"),
                     href=GITHUB_REPO_URL, target="_blank", title="View Repo on GitHub",
                     className="btn", style={"display": "inline-flex", "alignItems": "center",
-                                            "justifyContent": "center", "background": INK,
-                                            "borderColor": INK, "padding": "8px 12px"})])]),
+                                            "justifyContent": "center", "padding": "8px 12px"})])]),
 
         html.Div(style={"background": CARD, "borderBottom": f"1px solid {GRID}", "padding": "14px 28px 18px"}, children=[
             html.Div(style={"display": "flex", "flexWrap": "wrap", "gap": "14px 22px", "alignItems": "center"}, children=[
                 flt("RIDER", dd("f-rider", "All Memberships", sorted(df["user_type"].unique()), "170px")),
                 flt("REGION", dd("f-region", "All Regions", sorted(df["region"].unique()), "170px")),
                 flt("GENDER", dd("f-gender", "All Genders", sorted(df["member_gender"].unique()), "150px")),
-                flt("EQUITY", dcc.Dropdown(id="f-equity", clearable=False, value="all", style={"width": "190px"},
+                flt("EQUITY", dcc.Dropdown(id="f-equity", clearable=False, value="all", style=dd_style("190px"),
                                            options=[{"label": "All Trips", "value": "all"},
                                                     {"label": "Bike Share For All Only", "value": "yes"}])),
             ]),
@@ -498,6 +574,11 @@ def reset(_):
     return FILTER_DEFAULTS
 
 
+@app.callback(Output("sidebar", "className"), Input("btn-sidebar", "n_clicks"))
+def toggle_sidebar(n):
+    return "sidebar collapsed" if n and n % 2 == 1 else "sidebar"
+
+
 @app.callback([Output("content", "children"), Output("crumb", "children"), Output("f-note", "children")] +
               [Output(f"nav-{k}", "className") for k in PAGES],
               [Input("page", "data")] + [Input(i, "value") for i in FILTER_IDS])
@@ -507,7 +588,7 @@ def render(page, *filters):
     active = [f for f, dflt in zip(filters[:-1], FILTER_DEFAULTS[:-1]) if f != dflt]
     if list(filters[-1]) != FILTER_DEFAULTS[-1]:
         active.append(f"{filters[-1][0]}–{filters[-1][1]} min")
-    note = "Filters: " + ", ".join(map(str, active)) if active else "No active filters applied"
+    note = "Filters: " + ", ".join(map(str, active)) if active else ""
     nav = ["nav-btn active" if k == page else "nav-btn" for k in PAGES]
     if d.empty:
         body = html.Div("No trips match these filters. Click Reset to start over.",
