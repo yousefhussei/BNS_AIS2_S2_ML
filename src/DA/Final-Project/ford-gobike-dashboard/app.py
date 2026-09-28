@@ -1,18 +1,3 @@
-"""
-Ford GoBike Analytics Platform
-================================
-One merged Dash dashboard combining the strongest pieces of every earlier
-version: the multi-page sidebar structure, the KPI + computed-insights
-panels, the net-flow station map, the fleet/rebalancing operations view,
-and the demographics deep-dive — all running on the RAW february 2019
-trip file, cleaned in-place when the app starts.
-
-Run:
-    pip install dash pandas numpy plotly
-    python app.py
-Then open http://127.0.0.1:8050
-"""
-
 import os
 import numpy as np
 import pandas as pd
