@@ -1,0 +1,7 @@
+numpy
+pandas
+scikit-learn>=1.0
+matplotlib
+plotly
+streamlit>=1.50
+jupyter
